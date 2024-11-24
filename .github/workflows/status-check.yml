@@ -2,7 +2,7 @@ name: Status Check
 
 on:
   schedule:
-    - cron: "*/5 * * * *" # 每5分钟运行一次
+    - cron: "*/30 * * * *" # 每30分钟运行一次
   workflow_dispatch:
 
 jobs:
