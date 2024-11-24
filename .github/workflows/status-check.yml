@@ -1,6 +1,8 @@
 name: Status Check
 
 on:
+  push:
+    branches: [main] # 当推送到 main 分支时触发
   schedule:
     - cron: "*/30 * * * *" # 每30分钟运行一次
   workflow_dispatch:
