@@ -5,7 +5,7 @@ export const runtime = "edge";
 
 interface StatusRecord {
   timestamp: number;
-  status: boolean;
+  status: "available" | "partial" | "unavailable" | null;
 }
 
 interface CheckRequest {
@@ -65,7 +65,7 @@ export async function POST(request: Request) {
       cache: "no-cache",
     });
 
-    const status = response.ok;
+    const status = response.ok ? "available" : "unavailable";
     const timestamp = Date.now();
 
     // 获取现有记录

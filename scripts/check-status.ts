@@ -12,8 +12,6 @@ async function checkSites() {
 
       // 保存结果到 KV 存储
       await saveResult(site.name, isAvailable);
-
-      console.log(`${site.name}: ${isAvailable ? "Available" : "Unavailable"}`);
     } catch (error) {
       console.error(`Error checking ${site.name}:`, error);
       await saveResult(site.name, false);

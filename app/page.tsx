@@ -1,6 +1,6 @@
 "use client";
-import { useState, useEffect } from "react";
-import { MONITORING_CONFIG, type SiteConfig } from "@/config/monitoring";
+import { useState, useEffect, useCallback } from "react";
+import { MONITORING_CONFIG } from "@/config/monitoring";
 
 interface StatusRecord {
   timestamp: number;
@@ -10,10 +10,6 @@ interface StatusRecord {
 interface ApiResponse {
   data: StatusRecord[];
   mode: string;
-}
-
-interface CheckResponse {
-  isAvailable: boolean;
 }
 
 // 添加一个格式化时间的辅助函数
@@ -93,56 +89,31 @@ const TimeRangeSelector = ({
 };
 
 export default function Home() {
-  const [statuses, setStatuses] = useState<{ [key: string]: boolean | null }>(
-    {}
-  );
   const [history, setHistory] = useState<{ [key: string]: StatusRecord[] }>({});
   const [mode, setMode] = useState<"hour" | "day">("hour");
 
-  const fetchHistory = async () => {
+  const fetchHistory = useCallback(async () => {
     const newHistory: { [key: string]: StatusRecord[] } = {};
     for (const site of MONITORING_CONFIG.sites) {
       try {
-        console.log(`Fetching history for ${site.name}`);
         const response = await fetch(
           `/api/check?url=${encodeURIComponent(site.url)}&mode=${mode}`
         );
         const data = (await response.json()) as ApiResponse;
-        console.log(`Received data for ${site.name}:`, data);
         newHistory[site.name] = data.data;
       } catch (error) {
         console.error(`Error fetching history for ${site.name}:`, error);
       }
     }
-    console.log("Setting history:", newHistory);
     setHistory(newHistory);
-  };
+  }, [mode]);
 
   useEffect(() => {
-    const checkSites = async () => {
-      const newStatuses: { [key: string]: boolean | null } = {};
-
-      for (const site of MONITORING_CONFIG.sites) {
-        try {
-          const response = await fetch("/api/check", {
-            method: "POST",
-            body: JSON.stringify({ url: site.url }),
-          });
-          const data = (await response.json()) as CheckResponse;
-          newStatuses[site.name] = data.isAvailable;
-        } catch (error) {
-          newStatuses[site.name] = false;
-        }
-      }
-
-      setStatuses(newStatuses);
-      fetchHistory();
-    };
-
-    checkSites();
-    const interval = setInterval(checkSites, MONITORING_CONFIG.checkInterval);
+    fetchHistory();
+    // 每5分钟刷新一次历史数据
+    const interval = setInterval(fetchHistory, 5 * 60 * 1000);
     return () => clearInterval(interval);
-  }, [mode]);
+  }, [fetchHistory]);
 
   return (
     <main className="min-h-screen bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-[#023047] via-gray-900 to-black">
@@ -156,105 +127,119 @@ export default function Home() {
         </div>
 
         <div className="grid grid-cols-1 gap-6">
-          {MONITORING_CONFIG.sites.map((site) => (
-            <div
-              key={site.name}
-              className="p-6 rounded-2xl border border-[#219ebc]/10 bg-[#023047]/10 backdrop-blur-2xl shadow-xl hover:shadow-2xl hover:border-[#219ebc]/20 transition-all duration-300"
-            >
-              <div className="flex justify-between items-center mb-6">
-                <div>
-                  <h2 className="text-xl font-semibold mb-1 text-[#8ecae6]">
-                    {site.name}
-                  </h2>
-                  <p className="text-sm text-gray-400">{site.url}</p>
+          {MONITORING_CONFIG.sites.map((site) => {
+            // 获取最新的记录（数组中的最后一个非空值）
+            const records = history[site.name] || Array(90).fill(null);
+            const latestRecord = records
+              .slice()
+              .reverse()
+              .find((record) => record !== null);
+            const latestStatus =
+              typeof latestRecord === "object"
+                ? latestRecord?.status
+                : latestRecord;
+
+            return (
+              <div
+                key={site.name}
+                className="p-6 rounded-2xl border border-[#219ebc]/10 bg-[#023047]/10 backdrop-blur-2xl shadow-xl hover:shadow-2xl hover:border-[#219ebc]/20 transition-all duration-300"
+              >
+                <div className="flex justify-between items-center mb-6">
+                  <div>
+                    <h2 className="text-xl font-semibold mb-1 text-[#8ecae6]">
+                      {site.name}
+                    </h2>
+                    <p className="text-sm text-gray-400">{site.url}</p>
+                  </div>
+                  <div className="flex items-center bg-[#023047]/40 backdrop-blur-sm px-3 py-1.5 rounded-full border border-[#219ebc]/20">
+                    <div
+                      className={`w-2.5 h-2.5 rounded-full mr-2 ${
+                        latestStatus === "available"
+                          ? "bg-[#a7c957]"
+                          : latestStatus === "partial"
+                          ? "bg-[#ffb703]"
+                          : latestStatus === "unavailable"
+                          ? "bg-[#bc4749]"
+                          : "bg-gray-400"
+                      }`}
+                    />
+                    <span className="text-sm text-gray-300">
+                      {getStatusText(latestStatus || null).text}
+                    </span>
+                  </div>
                 </div>
-                <div className="flex items-center bg-[#023047]/40 backdrop-blur-sm px-3 py-1.5 rounded-full border border-[#219ebc]/20">
-                  <div
-                    className={`w-2.5 h-2.5 rounded-full mr-2 ${
-                      statuses[site.name] === null
-                        ? "bg-gray-400"
-                        : statuses[site.name]
-                        ? "bg-[#a7c957]"
-                        : "bg-[#bc4749]"
-                    }`}
-                  />
-                  <span className="text-sm text-gray-300">
-                    {statuses[site.name] === null
-                      ? "Checking..."
-                      : statuses[site.name]
-                      ? "Available"
-                      : "Unavailable"}
-                  </span>
-                </div>
-              </div>
-              <div className="relative">
-                <div className="flex flex-row justify-between w-full h-16 items-center">
-                  {history[site.name]?.map((status, index) => (
-                    <div key={index} className="group relative flex-1">
-                      <div
-                        className={`h-8 mx-0.5 rounded-sm transition-all duration-200 group-hover:h-12 ${
-                          status === "available"
-                            ? "bg-[#a7c957]/80 hover:bg-[#a7c957]"
-                            : status === "partial"
-                            ? "bg-[#ffb703]/80 hover:bg-[#ffb703]"
-                            : status === "unavailable"
-                            ? "bg-[#bc4749]/80 hover:bg-[#bc4749]"
-                            : "bg-gray-700"
-                        }`}
-                      />
-                      <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 opacity-0 group-hover:opacity-100 transition-all duration-200 pointer-events-none z-10">
-                        <div className="bg-[#023047]/95 backdrop-blur-sm rounded-lg shadow-lg p-3 border border-[#219ebc]/20">
-                          <div className="flex flex-col gap-1.5">
-                            <div className="text-[#8ecae6] font-medium whitespace-nowrap">
-                              {formatTimeRange(
-                                Date.now() -
-                                  (90 - index) *
-                                    (mode === "hour" ? 3600000 : 86400000),
-                                mode
-                              )}
-                            </div>
-                            <div className="flex items-center gap-2">
-                              <div
-                                className={`w-2 h-2 rounded-full ${
-                                  status === "available"
-                                    ? "bg-[#a7c957]"
-                                    : status === "partial"
-                                    ? "bg-[#ffb703]"
-                                    : status === "unavailable"
-                                    ? "bg-[#bc4749]"
-                                    : "bg-gray-400"
-                                }`}
-                              />
-                              <span
-                                className={`text-sm ${
-                                  status === "available"
-                                    ? "text-[#a7c957]"
-                                    : status === "partial"
-                                    ? "text-[#ffb703]"
-                                    : status === "unavailable"
-                                    ? "text-[#bc4749]"
-                                    : "text-gray-400"
-                                }`}
-                              >
-                                {getStatusText(status).text}
-                              </span>
+                <div className="relative">
+                  <div className="flex flex-row justify-between w-full h-16 items-center">
+                    {(history[site.name] || Array(90).fill(null)).map(
+                      (record, index) => {
+                        const statusValue =
+                          typeof record === "object" ? record?.status : record;
+
+                        return (
+                          <div key={index} className="group relative flex-1">
+                            <div
+                              className={`h-8 mx-0.5 rounded-sm transition-all duration-200 group-hover:h-12 ${
+                                statusValue === "available"
+                                  ? "bg-[#a7c957]/80 hover:bg-[#a7c957]"
+                                  : statusValue === "partial"
+                                  ? "bg-[#ffb703]/80 hover:bg-[#ffb703]"
+                                  : statusValue === "unavailable"
+                                  ? "bg-[#bc4749]/80 hover:bg-[#bc4749]"
+                                  : "bg-gray-700"
+                              }`}
+                            />
+                            <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 opacity-0 group-hover:opacity-100 transition-all duration-200 pointer-events-none z-10">
+                              <div className="bg-[#023047]/95 backdrop-blur-sm rounded-lg shadow-lg p-3 border border-[#219ebc]/20">
+                                <div className="flex flex-col gap-1.5">
+                                  <div className="text-[#8ecae6] font-medium whitespace-nowrap">
+                                    {formatTimeRange(
+                                      Date.now() -
+                                        (90 - index) *
+                                          (mode === "hour"
+                                            ? 3600000
+                                            : 86400000),
+                                      mode
+                                    )}
+                                  </div>
+                                  <div className="flex items-center gap-2">
+                                    <div
+                                      className={`w-2 h-2 rounded-full ${
+                                        statusValue === "available"
+                                          ? "bg-[#a7c957]"
+                                          : statusValue === "partial"
+                                          ? "bg-[#ffb703]"
+                                          : statusValue === "unavailable"
+                                          ? "bg-[#bc4749]"
+                                          : "bg-gray-400"
+                                      }`}
+                                    />
+                                    <span
+                                      className={`text-sm ${
+                                        getStatusText(statusValue).color
+                                      }`}
+                                    >
+                                      {getStatusText(statusValue).text}
+                                    </span>
+                                  </div>
+                                </div>
+                              </div>
+                              <div className="absolute left-1/2 -translate-x-1/2 -bottom-1.5">
+                                <div className="border-8 border-transparent border-t-[#023047]/95"></div>
+                              </div>
                             </div>
                           </div>
-                        </div>
-                        <div className="absolute left-1/2 -translate-x-1/2 -bottom-1.5">
-                          <div className="border-8 border-transparent border-t-[#023047]/95"></div>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-                <div className="flex justify-between mt-1 px-1 text-xs text-gray-500">
-                  <span>90 {mode === "hour" ? "Hours" : "Days"} Ago</span>
-                  <span>Now</span>
+                        );
+                      }
+                    )}
+                  </div>
+                  <div className="flex justify-between mt-1 px-1 text-xs text-gray-500">
+                    <span>90 {mode === "hour" ? "Hours" : "Days"} Ago</span>
+                    <span>Now</span>
+                  </div>
                 </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </div>
     </main>
